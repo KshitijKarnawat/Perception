@@ -1,19 +1,23 @@
+"""
+ * @file image_stiching.py
+ * @author Kshitij Karnawat (kshtiij@umd.edu)
+ * @brief Stiching multiple images to form one image.
+ * @version 0.5
+ * @date 2023-03-07
+ *
+ * @copyright Copyright (c) 2023
+"""
+
 import cv2 as cv
 import numpy as np
 from matplotlib import pyplot as plt
 
 # Read Images
-
 img1 = cv.imread('image_1.jpg')
 img2 = cv.imread('image_2.jpg')
 img3 = cv.imread('image_3.jpg')
 img4 = cv.imread('image_4.jpg')
-def A_mat(a,b):
-    x1,y1 = a
-    x2,y2 = b
-    A = np.array([[x1,y1,1,0,0,0,-x2*x1,-x2*y1,-x2],
-                 [0,0,0,x1,y1,1,-y2*x1,-y2*y1,-y2]])
-    return A
+
 def get_images(image1,image2):
 
     image1_r = cv.resize(image1, (int(image1.shape[1]*0.3),int(image1.shape[0]*0.3)), interpolation = cv.INTER_AREA)
@@ -26,7 +30,6 @@ def get_images(image1,image2):
     ax[0].imshow(gray1, cmap='gray')
     ax[1].imshow(gray2, cmap='gray')
     plt.show()
-
 
     # create SIFT feature extractor
     sift = cv.xfeatures2d.SIFT_create()
@@ -66,7 +69,7 @@ def calculate_homography(match,keypoints_1,keypoints_2, percent):
         x1,y1 = source_points[i]
         x2,y2 = dest_points[i]
         a_i = np.array([[x1, y1, 1, 0, 0, 0, -x2*x1, -x2*y1, -x2],
-                [0, 0, 0, x1, y1, 1, -y2*x1, -y2*y1, -y2]])
+                        [0, 0, 0, x1, y1, 1, -y2*x1, -y2*y1, -y2]])
         A = np.vstack((A,a_i))
     A = A[2:]
 
@@ -86,6 +89,7 @@ def stich(image1, image2, homography):
     plt.show()
     return result
 
+
 match1_2, keypoints1, keypoints2 = get_images(img1,img2)
 H1 = calculate_homography(match1_2, keypoints1, keypoints2,0.15)
 stich1 = stich(img1, img2, H1)
@@ -100,7 +104,6 @@ match1234, keypoints123, keypoints4 = get_images(stich2,img4)
 H3 = calculate_homography(match1234,keypoints123,keypoints4,0.1)
 stich3 = stich(stich2, img4, H3)
 print('H3 = ',H3)
-
 
 fig, ax = plt.subplots(1,3,figsize=(40,40))
 ax[0].imshow(stich1)
