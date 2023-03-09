@@ -112,31 +112,37 @@ def find_corners(rho_peaks, theta_peaks):
     
     return corners
 
-def transform(corners,paper,intrinsic_parameters):
+def homography(corners,paper,intrinsic_parameters):
+    
     ip_inv = np.linalg.inv(intrinsic_parameters)
+    
     A = np.zeros((2,9))
+    
     for i in range(len(corners)):
         a_i = np.array([[paper[i][0],paper[i][1],1,0,0,0,(-corners[i][0]*paper[i][0]),(-corners[i][0]*paper[i][1]),-corners[i][0]],
                         [0,0,0,paper[i][0],paper[i][1],1,(-corners[i][1]*paper[i][0]),(-corners[i][1]*paper[i][1]),-corners[i][1]]])
         A = np.vstack((A,a_i))
     A = A[2:]
+    
     eigenvalues, eigenvectors = np.linalg.eig(np.dot(A.T,A))
     eigenvalues_idx = np.argmin(eigenvalues)          
+    
     H = eigenvectors[:,eigenvalues_idx]
 
     H = (1/H[-1])*H
     
-    H_final = np.array([[H[0],H[1],H[2]],[H[3],H[4],H[5]],[H[6],H[7],H[8]]])
+    H = np.array(H, dtype=np.float64).reshape(3,3)
     
-    Transf = np.dot(ip_inv,H_final)
+    transform = np.dot(ip_inv,H)
     
-    lamb = (np.linalg.norm(Transf[:,0])+np.linalg.norm(Transf[:,1]))/2
+    lambda_ = (np.linalg.norm(transform[:,0])+np.linalg.norm(transform[:,1]))/2
     
-    Transf = (1/lamb)*Transf
-    r1= Transf[:,0]
-    r2= Transf[:,1]
-    r3= np.cross(Transf[:,0],Transf[:,1])
-    t= Transf[:,2]
+    transform = (1/lambda_)*transform
+    
+    r1 = transform[:,0]
+    r2 = transform[:,1]
+    r3 = np.cross(transform[:,0],transform[:,1])
+    t  = transform[:,2]
     
     return r1,r2,r3,t
 
@@ -146,7 +152,8 @@ video = cv.VideoCapture("project2.avi")
 if (video.isOpened()== False): 
   print("Error opening video stream or file")
 
-points_list = []
+translation = []
+rotation = []
 
 # Read until video is completed
 while(video.isOpened()):
@@ -168,13 +175,14 @@ while(video.isOpened()):
                                      [0,0,1]])
 
     paper = [(0,27.9),
-                 (21.6,27.9),
-                 (0,0),
-                 (21.6,0)]
+             (21.6,27.9),
+             (0,0),
+             (21.6,0)]
 
-    transformation = transform(corners,paper,intrinsic_parameters)
+    r1,r2,r3,t = homography(corners,paper,intrinsic_parameters)
     
-    points_list.append(transformation)
+    translation.append(np.array(t))
+    rotation.append(np.array([r1,r2,r3]))
     for i in lines:
       cv.line(frame, (i[0], i[1]), (i[2], i[3]), (125, 225, 255), 1)
 
@@ -198,22 +206,39 @@ video.release()
 # Closes all the frames
 cv.destroyAllWindows()
 
-points_list = np.array(points_list)
 
 x_list=[]
 y_list=[]
 z_list=[]
+yaw = []
+pitch = []
+roll = []
 
-for i in range(len(points_list)):
-    x = points_list[i][3][0]
+for i in range(len(translation)):
+    x = translation[i][0]
     x_list.append(x)
-    y = points_list[i][3][1]
+    y = translation[i][1]
     y_list.append(y)
-    z = points_list[i][3][2]
+    z = translation[i][2]
     z_list.append(z)
-plt.title("Translation")
-plt.legend(["x","y","z"])
+
+plt.title('Translation')
 plt.plot(x_list)
 plt.plot(y_list)
 plt.plot(z_list)
+plt.legend(['x','y','z'])
 plt.show()
+
+rotation = np.array(rotation)
+for i in rotation:
+    yaw.append(np.degrees(np.arctan2(i[1][0],i[0][0])))
+    pitch.append(np.degrees(np.arctan2(-i[2][0],np.sqrt(np.square(i[2][1])+np.square(i[1][1])))))
+    roll.append(np.degrees(np.arctan2(i[2][1],i[2][2])))
+
+plt.title('Rotation')
+plt.plot(yaw)
+plt.plot(pitch)
+plt.plot(roll)
+plt.legend(['yaw','pitch','roll'])
+plt.show()
+
