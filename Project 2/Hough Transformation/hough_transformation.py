@@ -1,3 +1,16 @@
+#!/usr/bin/env python3
+
+"""
+ * @copyright Copyright (c) 2023
+ * @file hough_transformation.py
+ * @author Kshitij Karnawat (kshitij@umd.edu)
+ * @brief Hough Transformation
+ * @version 0.1
+ * @date 2023-03-08
+ * 
+ * 
+"""
+
 import cv2 as cv
 import numpy as np
 from matplotlib import pyplot as plt
@@ -242,3 +255,8 @@ plt.plot(roll)
 plt.legend(['yaw','pitch','roll'])
 plt.show()
 
+
+"""
+References:
+def find_peaks(accumulator_matrix, rho_range, theta, kernal_size, frame): is derived from the work available here https://gist.github.com/bygreencn/6a900fd2ff5d0101473acbc3783c4d92
+"""
