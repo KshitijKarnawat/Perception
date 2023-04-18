@@ -1,3 +1,16 @@
+#!/usr/bin/env python3
+
+"""
+ * @copyright Copyright (c) 2023
+ * @file zhang.py
+ * @author Kshitij Karnawat (kshitij@umd.edu)
+ * @brief Question 2 for Porject 3
+ * @version 0.1
+ * @date 2023-04-17
+ * 
+ * 
+"""
+
 import numpy as np
 import cv2 as cv
 import glob
@@ -23,14 +36,12 @@ for i in images:
     img = cv.imread(i)
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
-    ret, corners = cv.findChessboardCorners(gray, (9,6), cv.CALIB_CB_ADAPTIVE_THRESH + cv.CALIB_CB_FAST_CHECK + cv.CALIB_CB_NORMALIZE_IMAGE)
+    ret, corners = cv.findChessboardCorners(gray, (9,6), cv.CALIB_CB_ADAPTIVE_THRESH)
 
     if ret == True:
         ground_truth.append(points)
-        corners2 = cv.cornerSubPix(gray,corners, (11,11), (-1,-1), (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001))
-        detected_points.append(corners2)
-
-        cv.drawChessboardCorners(img, (9,6), corners2, ret)
+        detected_points.append(corners)
+        cv.drawChessboardCorners(img, (9,6), corners, ret)
         cv.imshow('img', img)
         cv.waitKey(1000)
 
@@ -40,8 +51,8 @@ ret, intrinsic_matrix, distortion, rotation, translation = cv.calibrateCamera(gr
 
 reprojection_error = 0
 for i in range(len(ground_truth)):
-    imgpoints2, _ = cv.projectPoints(ground_truth[i], rotation[i], translation[i], intrinsic_matrix, distortion)
-    error = cv.norm(detected_points[i], imgpoints2, cv.NORM_L2)/len(imgpoints2)
+    imgpoints, _ = cv.projectPoints(ground_truth[i], rotation[i], translation[i], intrinsic_matrix, distortion)
+    error = cv.norm(detected_points[i], imgpoints, cv.NORM_L2)/len(imgpoints)
     print("Reprojection Error of Image",i,"=",error,)
     reprojection_error += error
 
