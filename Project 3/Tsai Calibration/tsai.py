@@ -35,6 +35,7 @@ def reprojection(u,v,X,Y,Z):
         A = np.vstack((A,a_i))
     A = A[2:]
 
+    # Projection Matrix
     eigenvalues, eigenvectors = np.linalg.eig(np.dot(A.T,A))
     eigenvalues_idx = np.argmin(eigenvalues)          
     projection_matrix = eigenvectors[:,eigenvalues_idx]
@@ -43,11 +44,13 @@ def reprojection(u,v,X,Y,Z):
 
     M = projection_matrix[:,:3]
 
+    # RQ Decomposition
     intrinsic_matrix, rotation = sp.linalg.rq(M)
     intrinsic_matrix = intrinsic_matrix/intrinsic_matrix[-1,-1]
     print("Intrinsic Matrix =", intrinsic_matrix)
     print("Rotation =", rotation)
 
+    # Translation
     translation = np.dot(np.linalg.inv(intrinsic_matrix), projection_matrix[:,-1])
     print("Translation =", translation)
 
@@ -71,6 +74,7 @@ Z = np.array([0, 0, 0, 0, 0, 7, 0, 7])
 
 reprojection(u, v, X, Y, Z)
 
+# Recalibrating
 X = np.delete(X, [1,2])
 Y = np.delete(Y, [1,2])
 Z = np.delete(Z, [1,2])
