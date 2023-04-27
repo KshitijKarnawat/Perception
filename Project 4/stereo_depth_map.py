@@ -1,8 +1,9 @@
 import cv2 as cv
 import numpy as np
-from tqdm import *
+from matplotlib import pyplot as plt
+import tqdm
 
-def getMatches(image1, image2):
+def getMatches(image1, image2, number):
     sift = cv.SIFT_create()
 
     keypoints1, descriptors1 = sift.detectAndCompute(image1,None)
@@ -15,7 +16,7 @@ def getMatches(image1, image2):
     points1 = []
     points2 = []
 
-    for i in matches[:100]:
+    for i in matches[:number]:
         x1, y1 = keypoints1[i.queryIdx].pt
         x2, y2 = keypoints2[i.trainIdx].pt
         points1.append([x1, y1])
@@ -27,7 +28,7 @@ def getMatches(image1, image2):
     image1_features = cv.drawKeypoints(image1, keypoints1, image1_copy)
     image2_features = cv.drawKeypoints(image2, keypoints2, image2_copy)
 
-    draw_images = cv.drawMatches(image1, keypoints1, image2, keypoints2, matches[:100], image2_copy, flags=2)
+    draw_images = cv.drawMatches(image1, keypoints1, image2, keypoints2, matches[:number], image2_copy, flags=2)
 
     cv.imshow("image1_features", image1_features)
     cv.waitKey(0)
@@ -61,7 +62,12 @@ def getFundamentalMatrix(points1, points2):
     fundamental_matrix = eigenvectors[:,eigenvalues_idx]
     
     fundamental_matrix = fundamental_matrix.reshape(3,3)
-    fundamental_matrix[-1,-1] = 0 #fundamental_matrix / fundamental_matrix[-1,-1]
+
+    u, d, v_t = np.linalg.svd(fundamental_matrix)
+    d = np.diag(d)
+    d[2,2] = 0
+
+    fundamental_matrix = np.dot(u, np.dot(d, v_t)) 
     
     return fundamental_matrix
 
@@ -74,11 +80,11 @@ def fundamentalMatrixRansac(points1, points2, iterations, threshold):
     points1 = np.array(points1, dtype = np.int32)
     points2 = np.array(points2, dtype = np.int32)
     
-    for _ in tqdm(range(iterations)):
+    for _ in tqdm.tqdm(range(iterations)):
     
         random_points = np.random.choice(points1.shape[0], 8, replace = False)
         
-        fundamental_matrix = getFundamentalMatrix(points1[random_points,:],points2[random_points,:])
+        fundamental_matrix_ = getFundamentalMatrix(points1[random_points,:],points2[random_points,:])
         
         inliers = []
 
@@ -87,7 +93,7 @@ def fundamentalMatrixRansac(points1, points2, iterations, threshold):
             x1 = np.hstack((points1[i,:], [1]))
             x2 = np.hstack((points2[i,:], [1]))
 
-            y = abs(np.dot(x2.T, np.dot(fundamental_matrix, x1)))
+            y = abs(np.dot(x2.T, np.dot(fundamental_matrix_, x1)))
             
             if y < threshold:
                 inliers.append(i)
@@ -95,9 +101,10 @@ def fundamentalMatrixRansac(points1, points2, iterations, threshold):
         if max_inliers < len(inliers):
         
             max_inliers = len(inliers)
-            fundamental_matrix = fundamental_matrix
+            fundamental_matrix = fundamental_matrix_
+            finliers = inliers
     
-    return fundamental_matrix, inliers
+    return fundamental_matrix, finliers
     
 
 def getEssentialMatrix(intrinsic_matrix, fundamental_matrix):
@@ -105,26 +112,44 @@ def getEssentialMatrix(intrinsic_matrix, fundamental_matrix):
 
 
 def decomposeEssentialMatrix(essential_matrix):
-    W = np.array([[0.0, -1.0, 0.0], 
-                  [1.0, 0.0, 0.0], 
-                  [0.0, 0.0, 1.0]])
+    W = np.array([[0, -1, 0], 
+                  [1, 0, 0], 
+                  [0, 0, 1]])
     
     u, _, v_t = np.linalg.svd(essential_matrix)
     
-    translation1 = u[:,2]
-    translation2 = -u[:,2]
-
+    translation1 = u[:,2].reshape(3,1)
     rotation1 = np.dot(u, np.dot(W, v_t))
-    rotation2 = np.dot(u, np.dot(W.T, v_t))
+    if(np.linalg.det(rotation1) != 1):
+        translation1, rotation1 = -translation1, -rotation1
     
-    return translation1, translation2, rotation1, rotation2
+    translation2 = -u[:,2].reshape(3,1)
+    rotation2 = np.dot(u, np.dot(W, v_t))
+    if(np.linalg.det(rotation2) != 1):
+        translation2, rotation2 = -translation2, -rotation2
+
+    translation3 = u[:,2].reshape(3,1)
+    rotation3 = np.dot(u, np.dot(W.T, v_t))
+    if(np.linalg.det(rotation3) != 1):
+        translation3, rotation3 = -translation3, -rotation3
+
+    translation4 = -u[:,2].reshape(3,1)
+    rotation4 = np.dot(u, np.dot(W.T, v_t))
+    if(np.linalg.det(rotation4) != 1):
+        translation4, rotation4 = -translation4, -rotation4
+
+    rotation_matrix = np.array([rotation1, rotation2, rotation3, rotation4])
+    translation_matrix = np.array([translation1, translation2, translation3, translation4])
+
+    
+    return translation_matrix, rotation_matrix
 
 
 def drawEpiLines(image1, image2, lines, points1, points2):
     image1_gray = cv.cvtColor(image1,cv.COLOR_BGR2GRAY)
     image2_gray = cv.cvtColor(image2,cv.COLOR_BGR2GRAY)
     
-    r, c, _ = image1.shape
+    r, c = image1_gray.shape
 
     for r, pt1, pt2 in zip(lines, points1, points2):
         x1, y1 = map(int, [0, -r[2]/r[1]])
@@ -134,6 +159,56 @@ def drawEpiLines(image1, image2, lines, points1, points2):
         image2 = cv.circle(image2_gray, tuple(pt2), 5, (0,0,0), -1)
 
     return image1, image2
+
+
+def getDisparity(image1, image2, kernel, offset):
+    h1, w1, _ = image1.shape
+    
+    image1_reshaped = cv.resize(image1, (int(image1.shape[1] * 0.125), int(image1.shape[0] * 0.125)))
+    image2_reshaped = cv.resize(image2, (int(image2.shape[1] * 0.125), int(image2.shape[0] * 0.125)))
+
+    image1_gray = cv.cvtColor(image1_reshaped, cv.COLOR_BGR2GRAY)
+    image2_gray = cv.cvtColor(image2_reshaped, cv.COLOR_BGR2GRAY)
+
+    h, w = image1_gray.shape
+
+    image1 = image1_gray.astype(int)
+    image2 = image2_gray.astype(int)
+
+    disparity = np.zeros((h,w), np.uint8)
+    
+    kernel_half = kernel // 2
+    offset_adjust = 255 / offset
+
+    for y in tqdm.tqdm(range(kernel_half, h - kernel_half)):
+        for x in range(kernel_half // 2, w - kernel_half):
+            offset_ = 0
+            prev_ssd = 65534
+            for i in range(offset):
+                ssd = 0
+                ssd_temp = 0
+                for j in range(-kernel_half, kernel_half):
+                    for k in range(-kernel_half, kernel_half):
+                        ssd_temp = int(image1[y+j, x+k]) - int(image2[y+j, ((x+k) - i)])
+                        ssd += ssd_temp ** 2
+                if ssd < prev_ssd:
+                    prev_ssd = ssd
+                    offset_ = i
+            
+            disparity[y, x] = offset_ * offset_adjust   
+
+    disparity = cv.resize(disparity, (w1, h1))
+
+    return disparity
+
+
+def getDepth(disparity, baseline, focul_length):
+
+    depth = (baseline * focul_length) / (disparity + 1e-10)
+    depth[depth > 10000] = 10000
+    depth_map = np.uint8(depth * 255 / np.max(depth))
+
+    return depth_map
 
 
 def main():
@@ -178,25 +253,33 @@ def main():
         
         baseline = 228.38
 
-    points1, points2 = getMatches(image1, image2)
-    print(len(points1))
-    fundamental_matrix, inliers = fundamentalMatrixRansac(points1, points2, 1000, 0.5)
+    focul_length = intrinsic_matrix[0,0]
+
+    if option == 1:
+        points1, points2 = getMatches(image1, image2, 500)
+        fundamental_matrix, inliers = fundamentalMatrixRansac(points1, points2, 1000, 0.5)
+
+    if option == 2:
+        points1, points2 = getMatches(image1, image2, 500)
+        fundamental_matrix, inliers = fundamentalMatrixRansac(points1, points2, 1000, 0.02)
+
+    if option == 3:
+        points1, points2 = getMatches(image1, image2, 100)
+        fundamental_matrix, inliers = fundamentalMatrixRansac(points1, points2, 1000, 5)
     print("\nfundamental_matrix =", fundamental_matrix)
     print("No. of Inliers =", len(inliers))
 
     essential_matrix = getEssentialMatrix(intrinsic_matrix, fundamental_matrix)
     print("\nessential_matrix =", essential_matrix)
 
-    translation1, translation2, rotation1, rotation2 = decomposeEssentialMatrix(essential_matrix)
-    print("\ntranslation1 =", translation1)
-    print("\ntranslation2 =", translation2)
-    print("\nrotation1 =", rotation1)
-    print("\nrotation2 =", rotation2)
+    translation, rotation = decomposeEssentialMatrix(essential_matrix)
+    print("\ntranslation =", translation)
+    print("\nrotation =", rotation)
 
     # # Rectification
     points1 = points1[inliers,:]
     points2 = points2[inliers,:]
-    print(points1)
+
     lines1 = cv.computeCorrespondEpilines(points2.reshape(-1, 1, 2), 2, fundamental_matrix).reshape(-1,3)
     epi1, _ = drawEpiLines(image1, image2, lines1, points1, points2)
     
@@ -225,6 +308,42 @@ def main():
     cv.imshow("rectified_2.png", rectified2)
     cv.waitKey(0)
     cv.destroyAllWindows()
+
+    # points1_rectified = cv.perspectiveTransform(np.array(int(points1)).reshape(-1,1,2), H1)
+    # points2_rectified = cv.perspectiveTransform(np.array(int(points2)).reshape(-1,1,2), H2)
+
+    # H1_inv = np.linalg.inv(H1)
+    # H2_T_inv =  np.linalg.inv(H2.T)
+
+    # rectified_fundamental_matrix = np.dot(H2_T_inv, np.dot(fundamental_matrix, H1_inv))
+
+    # lines1_rectified = cv.computeCorrespondEpilines(points1_rectified, 2, rectified_fundamental_matrix)
+    # lines1_rectified   = lines1_rectified[:,0]
+    # lines2_rectified = cv.computeCorrespondEpilines(points2_rectified, 2, rectified_fundamental_matrix)
+    # lines2_rectified   = lines2_rectified[:,0]
+
+    # epi3, _ = drawEpiLines(image1, image2, lines1_rectified, points1, points2)
+    # epi4, _ = drawEpiLines(image2, image1, lines2_rectified, points2, points1)
+
+    # cv.imshow("epi3",epi3)
+    # cv.waitKey(0)
+    # cv.imshow("epi4",epi4)
+    # cv.waitKey(0)
+    # cv.destroyAllWindows()
+
+    disparity = getDisparity(image1, image2, 6, 30)
+    # disparity_normalized = np.uint8(disparity * 255 / np.max(disparity))
+    plt.imshow(disparity, cmap='gray', interpolation='gaussian')
+    plt.show()
+    plt.imshow(disparity, cmap='jet', interpolation='gaussian')
+    plt.show()
+
+    depth_map = getDepth(disparity, baseline, focul_length)
+    plt.imshow(depth_map, cmap='gray', interpolation='gaussian')
+    plt.show()
+    plt.imshow(depth_map, cmap='jet', interpolation='gaussian')
+    plt.show()
+
 
 if __name__ == "__main__":
     main()
